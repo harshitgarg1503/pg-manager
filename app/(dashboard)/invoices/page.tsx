@@ -43,12 +43,17 @@ export default async function InvoicesPage() {
 
   const invoices: InvoiceRow[] = dbInvoices.map((inv) => {
     const paid = inv.status === "PAID";
+    const [primaryBed, ...extraBeds] = inv.tenant.beds;
     return {
       id: inv.id,
       tenantName: inv.tenant.fullName,
       phone: inv.tenant.phone,
-      roomNumber: inv.tenant.bed ? inv.tenant.bed.room.roomNumber : "—",
-      bedLabel: inv.tenant.bed ? `Bed ${inv.tenant.bed.bedNumber}` : "Vacated",
+      roomNumber: primaryBed ? primaryBed.room.roomNumber : "—",
+      bedLabel: !primaryBed
+        ? "Vacated"
+        : extraBeds.length === 0
+          ? `Bed ${primaryBed.bedNumber}`
+          : `Bed ${[primaryBed, ...extraBeds].map((b) => b.bedNumber).join(", Bed ")} (${inv.tenant.beds.length} Beds)`,
       period: new Date(inv.year, inv.month - 1, 1).toLocaleDateString("en-IN", {
         month: "short",
         year: "numeric",

@@ -99,7 +99,7 @@ export default async function DashboardPage() {
       prisma.tenant.findMany({
         where: { organizationId: org.id, noticeStatus: "SERVED" },
         include: {
-          bed: { include: { room: true } },
+          beds: { include: { room: true }, orderBy: { bedNumber: "asc" } },
         },
         orderBy: { expectedVacateDate: "asc" },
       }),
@@ -128,31 +128,28 @@ export default async function DashboardPage() {
     roomCapacities.map((r) => [r.id, r._count.beds]),
   );
 
-  const upcomingVacancies: UpcomingVacancy[] = servedTenants.flatMap((t) => {
-    if (!t.bed) return [];
-    return [
-      {
-        bedId: t.bed.id,
-        roomNumber: t.bed.room.roomNumber,
-        bedLabel: `Bed ${t.bed.bedNumber}`,
-        sharingLabel: sharingLabel(
-          capacityByRoom.get(t.bed.room.id) ?? 1,
-          t.bed.room.airConditioned,
-        ),
-        rent: Number(t.bed.room.baseRent),
-        tenantFirstName:
-          t.fullName.split(" ")[0] || t.fullName,
-        expectedDate: t.expectedVacateDate
-          ? formatShort(t.expectedVacateDate)
-          : "—",
-        daysRemaining: t.expectedVacateDate
-          ? Math.ceil(
-              (t.expectedVacateDate.getTime() - now.getTime()) / dayMs,
-            )
-          : null,
-      },
-    ];
-  });
+  // One row per freeing bed: a tenant holding several beds frees them all.
+  const upcomingVacancies: UpcomingVacancy[] = servedTenants.flatMap((t) =>
+    t.beds.map((bed) => ({
+      bedId: bed.id,
+      roomNumber: bed.room.roomNumber,
+      bedLabel: `Bed ${bed.bedNumber}`,
+      sharingLabel: sharingLabel(
+        capacityByRoom.get(bed.room.id) ?? 1,
+        bed.room.airConditioned,
+      ),
+      rent: Number(bed.room.baseRent),
+      tenantFirstName: t.fullName.split(" ")[0] || t.fullName,
+      expectedDate: t.expectedVacateDate
+        ? formatShort(t.expectedVacateDate)
+        : "—",
+      daysRemaining: t.expectedVacateDate
+        ? Math.ceil(
+            (t.expectedVacateDate.getTime() - now.getTime()) / dayMs,
+          )
+        : null,
+    })),
+  );
 
   const immediateVacancies: ImmediateVacancy[] = vacantBeds.map((b) => ({
     bedId: b.id,
@@ -164,19 +161,26 @@ export default async function DashboardPage() {
     ),
     rent: Number(b.room.baseRent),
   }));
-  const noticeAlerts: NoticeAlert[] = servedTenants.map((t) => ({
-    id: t.id,
-    name: t.fullName,
-    roomNumber: t.bed ? t.bed.room.roomNumber : "—",
-    bedLabel: t.bed ? `Bed ${t.bed.bedNumber}` : "No bed",
-    noticeServedAt: t.noticeServedAt ? formatShort(t.noticeServedAt) : "—",
-    expectedVacateDate: t.expectedVacateDate
-      ? formatShort(t.expectedVacateDate)
-      : "—",
-    daysRemaining: t.expectedVacateDate
-      ? Math.ceil((t.expectedVacateDate.getTime() - now.getTime()) / dayMs)
-      : null,
-  }));
+  const noticeAlerts: NoticeAlert[] = servedTenants.map((t) => {
+    const [primaryBed, ...extraBeds] = t.beds;
+    return {
+      id: t.id,
+      name: t.fullName,
+      roomNumber: primaryBed ? primaryBed.room.roomNumber : "—",
+      bedLabel: !primaryBed
+        ? "No bed"
+        : extraBeds.length === 0
+          ? `Bed ${primaryBed.bedNumber}`
+          : `Bed ${primaryBed.bedNumber} +${extraBeds.length} more`,
+      noticeServedAt: t.noticeServedAt ? formatShort(t.noticeServedAt) : "—",
+      expectedVacateDate: t.expectedVacateDate
+        ? formatShort(t.expectedVacateDate)
+        : "—",
+      daysRemaining: t.expectedVacateDate
+        ? Math.ceil((t.expectedVacateDate.getTime() - now.getTime()) / dayMs)
+        : null,
+    };
+  });
 
   const stats = [
     {

@@ -39,7 +39,8 @@ export interface TenantOnboardingData {
   email: string;
   emergencyContact: string;
   roomId: string;
-  bedId: string;
+  /** One or more vacant beds in the selected room. */
+  bedIds: string[];
   monthlyRent: string;
   securityDeposit: string;
   idType: string;
@@ -134,7 +135,7 @@ const INITIAL_DATA: TenantOnboardingData = {
   email: "",
   emergencyContact: "",
   roomId: "",
-  bedId: "",
+  bedIds: [],
   monthlyRent: "",
   securityDeposit: "",
   idType: "Aadhaar Card",
@@ -159,12 +160,15 @@ function buildInitialData(
     room = rooms.find((r) => r.beds.some((b) => b.id === initialBedId));
   }
   if (!room) return INITIAL_DATA;
-  const bedOk =
-    initialBedId && room.beds.some((b) => b.id === initialBedId) ? initialBedId : "";
+  const preselected =
+    initialBedId &&
+    room.beds.some((b) => b.id === initialBedId && b.status === "vacant")
+      ? [initialBedId]
+      : [];
   return {
     ...INITIAL_DATA,
     roomId: room.id,
-    bedId: bedOk ?? "",
+    bedIds: preselected,
     monthlyRent: String(room.defaultRent),
     securityDeposit: String(room.defaultRent),
   };
@@ -197,6 +201,9 @@ export default function TenantOnboardingDrawer({
   const [dragActive, setDragActive] = useState(false);
   const [completed, setCompleted] = useState(false);
   const [loading, setLoading] = useState(false);
+  // True once the owner types a custom rent (e.g. a discount) — auto-total
+  // from the bed count must not clobber it afterwards.
+  const [rentEdited, setRentEdited] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const selectedRoom = roomsData.find((r) => r.id === form.roomId);
@@ -231,7 +238,11 @@ export default function TenantOnboardingDrawer({
     useState<RoomOption[] | null>(null);
   if (serverRooms !== null && serverRooms !== shortcutAppliedFor) {
     setShortcutAppliedFor(serverRooms);
-    if ((initialRoomId || initialBedId) && !form.roomId && !form.bedId) {
+    if (
+      (initialRoomId || initialBedId) &&
+      !form.roomId &&
+      form.bedIds.length === 0
+    ) {
       setForm(buildInitialData(serverRooms, initialRoomId, initialBedId));
     }
   }
@@ -271,17 +282,41 @@ export default function TenantOnboardingDrawer({
 
   const handleRoomChange = (roomId: string) => {
     const room = roomsData.find((r) => r.id === roomId);
+    setRentEdited(false);
     setForm((prev) => ({
       ...prev,
       roomId,
-      bedId: "",
+      bedIds: [],
       monthlyRent: room ? String(room.defaultRent) : prev.monthlyRent,
       securityDeposit: room ? String(room.defaultRent) : prev.securityDeposit,
     }));
     setErrors((prev) => {
       const next = { ...prev };
       delete next.roomId;
-      delete next.bedId;
+      delete next.bedIds;
+      return next;
+    });
+  };
+
+  const toggleBed = (bedId: string) => {
+    const room = roomsData.find((r) => r.id === form.roomId);
+    const nextIds = form.bedIds.includes(bedId)
+      ? form.bedIds.filter((id) => id !== bedId)
+      : [...form.bedIds, bedId];
+    setForm((prev) => ({
+      ...prev,
+      bedIds: nextIds,
+      // Auto-total: per-bed room rent × selected beds, unless the owner
+      // already typed a custom (discounted) figure.
+      monthlyRent:
+        !rentEdited && room
+          ? String(room.defaultRent * nextIds.length)
+          : prev.monthlyRent,
+    }));
+    setErrors((prev) => {
+      if (!prev.bedIds) return prev;
+      const next = { ...prev };
+      delete next.bedIds;
       return next;
     });
   };
@@ -301,7 +336,8 @@ export default function TenantOnboardingDrawer({
     }
     if (s === 1) {
       if (!form.roomId) next.roomId = "Select a room.";
-      if (!form.bedId) next.bedId = "Select a vacant bed.";
+      if (form.bedIds.length === 0)
+        next.bedIds = "Select at least one vacant bed — a tenant may hold several.";
       if (!form.monthlyRent || Number(form.monthlyRent) <= 0)
         next.monthlyRent = "Enter monthly rent.";
       if (form.securityDeposit === "" || Number(form.securityDeposit) < 0)
@@ -322,7 +358,8 @@ export default function TenantOnboardingDrawer({
         fullName: form.fullName,
         phone: form.phone,
         email: form.email || undefined,
-        bedId: form.bedId || undefined,
+        bedIds: form.bedIds,
+        monthlyRent: form.monthlyRent || undefined,
         emergencyContact: form.emergencyContact || undefined,
       });
       if (result.success) {
@@ -374,6 +411,7 @@ export default function TenantOnboardingDrawer({
     setForm(INITIAL_DATA);
     setErrors({});
     setStep(0);
+    setRentEdited(false);
     setCompleted(false);
     onClose();
   };
@@ -615,7 +653,10 @@ export default function TenantOnboardingDrawer({
 
                     <div>
                       <span className={labelClass} id="ob-bed-label">
-                        Select Bed <span className="text-red-500">*</span>
+                        Select Beds <span className="text-red-500">*</span>
+                        <span className="ml-1 font-normal text-slate-400">
+                          ({form.bedIds.length} selected — tap for more)
+                        </span>
                       </span>
                       {!form.roomId ? (
                         <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-center text-[13px] text-slate-500">
@@ -627,21 +668,21 @@ export default function TenantOnboardingDrawer({
                         </p>
                       ) : (
                         <div
-                          role="radiogroup"
+                          role="group"
                           aria-labelledby="ob-bed-label"
                           className="grid grid-cols-2 gap-2 sm:grid-cols-3"
                         >
                           {selectedRoom?.beds.map((bed) => {
                             const isVacant = bed.status === "vacant";
-                            const isSelected = form.bedId === bed.id;
+                            const isSelected = form.bedIds.includes(bed.id);
                             return (
                               <button
                                 key={bed.id}
                                 type="button"
-                                role="radio"
+                                role="checkbox"
                                 aria-checked={isSelected}
                                 disabled={!isVacant}
-                                onClick={() => set("bedId", bed.id)}
+                                onClick={() => toggleBed(bed.id)}
                                 className={cn(
                                   "rounded-lg border px-3 py-2.5 text-left text-sm font-medium transition-all",
                                   !isVacant &&
@@ -671,13 +712,22 @@ export default function TenantOnboardingDrawer({
                           })}
                         </div>
                       )}
-                      {errors.bedId && <p className={errorClass}>{errors.bedId}</p>}
+                      {errors.bedIds && <p className={errorClass}>{errors.bedIds}</p>}
+                      {form.bedIds.length > 0 && (
+                        <p className="mt-2 text-[13px] font-medium tabular-nums text-slate-700">
+                          Acquiring: {form.bedIds.length} Bed
+                          {form.bedIds.length === 1 ? "" : "s"}
+                        </p>
+                      )}
                     </div>
 
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                       <div>
                         <label htmlFor="ob-rent" className={labelClass}>
                           Monthly Rent (₹) <span className="text-red-500">*</span>
+                          <span className="ml-1 font-normal text-slate-400">
+                            auto-totaled, editable
+                          </span>
                         </label>
                         <div className="relative">
                           <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-sm text-slate-400">
@@ -689,7 +739,10 @@ export default function TenantOnboardingDrawer({
                             min={0}
                             placeholder="8000"
                             value={form.monthlyRent}
-                            onChange={(e) => set("monthlyRent", e.target.value)}
+                            onChange={(e) => {
+                              set("monthlyRent", e.target.value);
+                              setRentEdited(true);
+                            }}
                             className={cn(inputClass, "pl-8")}
                           />
                         </div>

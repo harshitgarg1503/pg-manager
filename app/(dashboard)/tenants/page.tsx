@@ -29,10 +29,11 @@ export default async function TenantsPage() {
     prisma.tenant.findMany({
       where: { organizationId: org.id },
       include: {
-        bed: {
+        beds: {
           include: {
             room: true,
           },
+          orderBy: { bedNumber: "asc" },
         },
       },
       orderBy: { createdAt: "desc" },
@@ -49,14 +50,21 @@ export default async function TenantsPage() {
 
   const tenants: TenantRow[] = dbTenants.map((t) => {
     const invoice = invoiceByTenant.get(t.id);
-    const roomRent = t.bed ? Number(t.bed.room.baseRent) : 0;
+    const [primaryBed, ...extraBeds] = t.beds;
+    const roomRent = primaryBed ? Number(primaryBed.room.baseRent) : 0;
+    const bedLabel =
+      !primaryBed
+        ? "Vacated"
+        : extraBeds.length === 0
+          ? `Bed ${primaryBed.bedNumber}`
+          : `Bed ${[primaryBed, ...extraBeds].map((b) => b.bedNumber).join(", Bed ")} (${t.beds.length} Beds)`;
     return {
       id: t.id,
       name: t.fullName,
       email: t.email ?? "",
       phone: t.phone,
-      room: t.bed ? t.bed.room.roomNumber : "—",
-      bed: t.bed ? `Bed ${t.bed.bedNumber}` : "Vacated",
+      room: primaryBed ? primaryBed.room.roomNumber : "—",
+      bed: bedLabel,
       moveIn: formatMoveIn(t.checkInDate),
       rentPaid: invoice?.status === "PAID",
       dueAmount: invoice ? Number(invoice.totalAmount) : roomRent,

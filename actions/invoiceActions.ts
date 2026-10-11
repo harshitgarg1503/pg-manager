@@ -43,11 +43,12 @@ export async function getInvoices() {
           id: true,
           fullName: true,
           phone: true,
-          bed: {
+          beds: {
             select: {
               bedNumber: true,
               room: { select: { roomNumber: true } },
             },
+            orderBy: { bedNumber: "asc" },
           },
         },
       },

@@ -50,7 +50,7 @@ export default function NoticeAlerts({ alerts }: { alerts: NoticeAlert[] }) {
   async function handleVacated(id: string, name: string) {
     if (
       !window.confirm(
-        `Mark ${name} as vacated? Their bed will be freed for re-booking immediately.`,
+        `Mark ${name} as vacated? All their beds will be freed for re-booking immediately.`,
       )
     ) {
       return;

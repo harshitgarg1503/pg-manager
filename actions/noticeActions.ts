@@ -58,7 +58,7 @@ export async function serveNotice(
 
     const tenant = await prisma.tenant.findFirst({
       where: { id: tenantId, organizationId: org.id },
-      select: { id: true, bedId: true, noticeStatus: true },
+      select: { id: true, noticeStatus: true, _count: { select: { beds: true } } },
     });
     if (!tenant) {
       return {
@@ -66,10 +66,10 @@ export async function serveNotice(
         error: "Tenant was not found for your organization.",
       };
     }
-    if (!tenant.bedId) {
+    if (tenant._count.beds === 0) {
       return {
         success: false,
-        error: "This tenant is not occupying a bed.",
+        error: "This tenant is not occupying any bed.",
       };
     }
     if (tenant.noticeStatus === "SERVED") {
@@ -105,8 +105,8 @@ export async function serveNotice(
 
 /**
  * Mark a tenant as vacated: keeps their record (invoice history intact)
- * but disconnects the bed and flips it back to VACANT so it can be
- * re-booked immediately.
+ * but releases ALL their beds (tenantId cleared, flipped back to VACANT)
+ * so they can be re-booked immediately.
  */
 export async function markAsVacated(
   tenantId: string
@@ -119,7 +119,7 @@ export async function markAsVacated(
 
     const tenant = await prisma.tenant.findFirst({
       where: { id: tenantId, organizationId: org.id },
-      select: { id: true, bedId: true, noticeStatus: true },
+      select: { id: true, noticeStatus: true },
     });
     if (!tenant) {
       return {
@@ -134,17 +134,12 @@ export async function markAsVacated(
     await prisma.$transaction(async (tx) => {
       await tx.tenant.update({
         where: { id: tenantId },
-        data: {
-          noticeStatus: "VACATED",
-          bed: { disconnect: true },
-        },
+        data: { noticeStatus: "VACATED" },
       });
-      if (tenant.bedId) {
-        await tx.bed.update({
-          where: { id: tenant.bedId },
-          data: { status: "VACANT" },
-        });
-      }
+      await tx.bed.updateMany({
+        where: { tenantId, organizationId: org.id },
+        data: { tenantId: null, status: "VACANT" },
+      });
     });
 
     revalidateNoticePages();

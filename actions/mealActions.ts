@@ -80,8 +80,8 @@ function emptyCounts(dateKey: string): DailyMealCounts {
 
 /**
  * Headcount for one mess day. Tenants without a record count as eating all
- * three meals (columns default true). Only occupying tenants (with a bed)
- * are counted.
+ * three meals (columns default true). Only occupying tenants (holding at
+ * least one bed) are counted; the first bed is shown as representative.
  */
 export async function getDailyMealCounts(
   dateKey: string
@@ -131,15 +131,16 @@ async function countDay(
 
   const [tenants, records] = await Promise.all([
     prisma.tenant.findMany({
-      where: { organizationId: orgId, bedId: { not: null } },
+      where: { organizationId: orgId, beds: { some: {} } },
       select: {
         id: true,
         fullName: true,
-        bed: {
+        beds: {
           select: {
             bedNumber: true,
             room: { select: { roomNumber: true } },
           },
+          orderBy: { bedNumber: "asc" },
         },
       },
       orderBy: { fullName: "asc" },
@@ -159,7 +160,13 @@ async function countDay(
   const skippedList: SkippedTenant[] = [];
 
   for (const t of tenants) {
-    if (!t.bed) continue;
+    const primaryBed = t.beds[0];
+    if (!primaryBed) continue;
+    const roomNumber = primaryBed.room.roomNumber;
+    const bedLabel =
+      t.beds.length > 1
+        ? `Bed ${primaryBed.bedNumber} +${t.beds.length - 1} more`
+        : `Bed ${primaryBed.bedNumber}`;
     const r = byTenant.get(t.id);
     const eating = {
       breakfast: r ? r.breakfast : true,
@@ -173,8 +180,8 @@ async function countDay(
     tracked.push({
       id: t.id,
       name: t.fullName,
-      roomNumber: t.bed.room.roomNumber,
-      bedLabel: `Bed ${t.bed.bedNumber}`,
+      roomNumber,
+      bedLabel,
       ...eating,
     });
 
@@ -185,8 +192,8 @@ async function countDay(
       skippedList.push({
         id: t.id,
         name: t.fullName,
-        roomNumber: t.bed.room.roomNumber,
-        bedLabel: `Bed ${t.bed.bedNumber}`,
+        roomNumber,
+        bedLabel,
         skippedMeals,
       });
     }
@@ -225,7 +232,7 @@ export async function setMealAttendance(
     }
 
     const tenant = await prisma.tenant.findFirst({
-      where: { id: tenantId, organizationId: org.id, bedId: { not: null } },
+      where: { id: tenantId, organizationId: org.id, beds: { some: {} } },
       select: { id: true },
     });
     if (!tenant) {
