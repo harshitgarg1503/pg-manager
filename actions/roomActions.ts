@@ -4,11 +4,16 @@ import { revalidatePath } from "next/cache";
 import type { Room } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserOrg } from "@/actions/authActions";
+import { getActiveBranch } from "@/actions/branchActions";
 import { BED_COST_RUPEES } from "@/lib/billing";
 import type { RoomOption } from "@/components/tenants/TenantOnboardingDrawer";
 
 export interface CreateRoomData {
-  propertyId: string;
+  /**
+   * Optional explicit branch. When omitted, the room is linked to the
+   * currently active branch (active_branch_id cookie).
+   */
+  propertyId?: string;
   roomNumber: string;
   floor?: number;
   baseRent: number | string;
@@ -48,7 +53,6 @@ export async function createRoom(
       };
     }
 
-    const propertyId = data.propertyId?.trim();
     const roomNumber = data.roomNumber?.trim();
     const floor = data.floor ?? 0;
     const baseRent =
@@ -60,7 +64,18 @@ export async function createRoom(
         ? parseInt(data.bedCount, 10)
         : data.bedCount;
 
-    if (!propertyId) return { success: false, error: "Property is required." };
+    // Branch context: explicit property wins, otherwise the active branch.
+    let propertyId = data.propertyId?.trim();
+    if (!propertyId) {
+      const activeBranch = await getActiveBranch();
+      if (!activeBranch) {
+        return {
+          success: false,
+          error: "No branch found. Please add a branch first.",
+        };
+      }
+      propertyId = activeBranch.id;
+    }
     if (!roomNumber)
       return { success: false, error: "Room number is required." };
     if (!Number.isFinite(baseRent) || baseRent < 0)
@@ -162,12 +177,17 @@ export async function createRoom(
   }
 }
 
-/** List rooms for the current owner's organization, with beds + tenants. */
+/**
+ * Rooms of the currently active branch, with beds + tenants.
+ * Branch context keeps the rooms view aligned with the switcher.
+ */
 export async function getOrgRooms() {
   const org = await getCurrentUserOrg();
   if (!org) return [];
+  const activeBranch = await getActiveBranch();
+  if (!activeBranch) return [];
   return prisma.room.findMany({
-    where: { organizationId: org.id },
+    where: { organizationId: org.id, propertyId: activeBranch.id },
     include: {
       beds: {
         include: { tenant: true },
@@ -180,14 +200,17 @@ export async function getOrgRooms() {
 
 /**
  * Room + bed options for the Tenant Onboarding drawer, shaped exactly like
- * its `RoomOption[]` contract (rent serialized to number). Returns [] when
- * signed out so the drawer never falls back to mock rooms for real owners.
+ * its `RoomOption[]` contract (rent serialized to number). Scoped to the
+ * active branch so bookings happen in the branch you're viewing. Returns []
+ * when signed out so the drawer never falls back to mock rooms for owners.
  */
 export async function getRoomOptions(): Promise<RoomOption[]> {
   const org = await getCurrentUserOrg();
   if (!org) return [];
+  const activeBranch = await getActiveBranch();
+  if (!activeBranch) return [];
   const dbRooms = await prisma.room.findMany({
-    where: { organizationId: org.id },
+    where: { organizationId: org.id, propertyId: activeBranch.id },
     include: {
       beds: { orderBy: { bedNumber: "asc" } },
     },

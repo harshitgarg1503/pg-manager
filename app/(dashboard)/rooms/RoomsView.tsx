@@ -13,13 +13,13 @@ const inputClass =
 
 interface RoomsViewProps {
   rooms: Room[];
-  properties: { id: string; name: string }[];
+  activeBranch: { id: string; name: string };
   organizationName: string;
 }
 
 export default function RoomsView({
   rooms,
-  properties,
+  activeBranch,
   organizationName,
 }: RoomsViewProps) {
   const { openOnboarding } = useTenantOnboarding();
@@ -35,7 +35,6 @@ export default function RoomsView({
     setError(null);
     startTransition(async () => {
       const result = await createRoom({
-        propertyId: String(formData.get("propertyId") ?? ""),
         roomNumber: String(formData.get("roomNumber") ?? ""),
         floor: Number(formData.get("floor") ?? 0),
         baseRent: String(formData.get("baseRent") ?? ""),
@@ -57,15 +56,15 @@ export default function RoomsView({
       <div>
         <h1 className="text-xl font-semibold">Rooms &amp; Beds</h1>
         <p className="mt-1 text-sm text-slate-500">
-          {organizationName} — floor-wise occupancy, click a vacant bed to book
-          it.
+          {organizationName} · {activeBranch.name} — floor-wise occupancy,
+          click a vacant bed to book it.
         </p>
       </div>
 
       {rooms.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center">
           <p className="text-sm font-medium text-slate-900">
-            No rooms yet for {organizationName}
+            No rooms yet in {activeBranch.name}
           </p>
           <p className="mt-1 text-sm text-slate-500">
             Add your first room below — it will appear here instantly.
@@ -76,38 +75,24 @@ export default function RoomsView({
       )}
 
       <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="text-sm font-semibold text-slate-900">Add a room</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Rooms are always created under your organization — no manual org
-          selection needed.
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900">Add a room</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Rooms are always created under your organization — no manual org
+              selection needed.
+            </p>
+          </div>
+          <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-700">
+            Adding to: {activeBranch.name}
+          </span>
+        </div>
 
         <form
           id="add-room-form"
           action={handleAddRoom}
           className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
         >
-          <div>
-            <label
-              htmlFor="propertyId"
-              className="mb-1.5 block text-sm font-medium text-slate-700"
-            >
-              Property
-            </label>
-            <select
-              id="propertyId"
-              name="propertyId"
-              required
-              className={inputClass}
-            >
-              {properties.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
           <div>
             <label
               htmlFor="roomNumber"

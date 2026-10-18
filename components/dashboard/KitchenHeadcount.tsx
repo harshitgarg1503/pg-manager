@@ -75,8 +75,21 @@ const MEALS: { key: MealKey; label: string; icon: typeof Coffee }[] = [
 
 /* -------------------------------- Component ------------------------------- */
 
-export default function KitchenHeadcount() {
-  const [forecast, setForecast] = useState<ForecastDay[] | null>(null);
+interface KitchenHeadcountProps {
+  /**
+   * Forecast prefetched on the server and streamed in via Suspense. When
+   * provided, the client skips its own fetch; without it (e.g. a later
+   * client-side mount) it falls back to fetching the action itself.
+   */
+  initialForecast?: ForecastDay[] | null;
+}
+
+export default function KitchenHeadcount({
+  initialForecast = null,
+}: KitchenHeadcountProps) {
+  const [forecast, setForecast] = useState<ForecastDay[] | null>(
+    initialForecast,
+  );
   const [tabIndex, setTabIndex] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -84,6 +97,7 @@ export default function KitchenHeadcount() {
   const [bannerDismissed, setBannerDismissed] = useState(false);
 
   useEffect(() => {
+    if (initialForecast) return; // already hydrated by the server
     let cancelled = false;
     getUpcomingMealForecast().then(
       (days) => {
@@ -97,7 +111,7 @@ export default function KitchenHeadcount() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [initialForecast]);
 
   async function handleRetry() {
     setError(null);

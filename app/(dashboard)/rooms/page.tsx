@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
-import { prisma } from "@/lib/prisma";
 import { getAuthUserId, getCurrentUserOrg } from "@/actions/authActions";
+import { getActiveBranch } from "@/actions/branchActions";
+import { prisma } from "@/lib/prisma";
 import RoomsView from "./RoomsView";
 import type { Room as MatrixRoom } from "@/components/rooms/RoomOccupancyMatrix";
 
@@ -11,23 +12,19 @@ export default async function RoomsPage() {
   const org = await getCurrentUserOrg();
   if (!org) redirect("/onboarding");
 
-  const [dbRooms, properties] = await Promise.all([
-    prisma.room.findMany({
-      where: { organizationId: org.id },
-      include: {
-        beds: {
-          include: { tenant: true },
-          orderBy: { bedNumber: "asc" },
-        },
+  const activeBranch = await getActiveBranch();
+  if (!activeBranch) redirect("/onboarding");
+
+  const dbRooms = await prisma.room.findMany({
+    where: { organizationId: org.id, propertyId: activeBranch.id },
+    include: {
+      beds: {
+        include: { tenant: true },
+        orderBy: { bedNumber: "asc" },
       },
-      orderBy: [{ floor: "asc" }, { roomNumber: "asc" }],
-    }),
-    prisma.property.findMany({
-      where: { organizationId: org.id },
-      select: { id: true, name: true },
-      orderBy: { createdAt: "asc" },
-    }),
-  ]);
+    },
+    orderBy: [{ floor: "asc" }, { roomNumber: "asc" }],
+  });
 
   const rooms: MatrixRoom[] = dbRooms.map((room) => ({
     id: room.id,
@@ -51,7 +48,7 @@ export default async function RoomsPage() {
   return (
     <RoomsView
       rooms={rooms}
-      properties={properties}
+      activeBranch={{ id: activeBranch.id, name: activeBranch.name }}
       organizationName={org.name}
     />
   );

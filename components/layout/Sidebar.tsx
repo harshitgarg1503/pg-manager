@@ -5,9 +5,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   BedDouble,
-  Building2,
-  Check,
-  ChevronsUpDown,
   CreditCard,
   LayoutDashboard,
   LogOut,
@@ -22,6 +19,7 @@ import { logoutUser } from "@/actions/authActions";
 import { getWalletBalance } from "@/actions/walletActions";
 import { formatINR } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import BranchSwitcher from "./BranchSwitcher";
 
 const OWNER_NAV = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
@@ -42,15 +40,8 @@ const STAFF_NAV = [
   { label: "Log Expense", href: "/expenses", icon: Wallet },
 ];
 
-const ORGS = [
-  { name: "Sunrise Luxury PG", meta: "MG Road · 48 beds" },
-  { name: "Sunset Residency", meta: "HSR Layout · 32 beds" },
-];
-
 export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
-  const [orgOpen, setOrgOpen] = useState(false);
-  const [activeOrg, setActiveOrg] = useState(ORGS[0]);
   const [mode, setMode] = useState<ViewMode>(() => readViewMode());
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
 
@@ -79,72 +70,8 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <div className="flex h-full flex-col bg-white">
-      {/* Organization switcher */}
-      <div className="relative p-4 pb-2">
-        <button
-          type="button"
-          onClick={() => setOrgOpen((v) => !v)}
-          aria-haspopup="listbox"
-          aria-expanded={orgOpen}
-          className="flex w-full items-center gap-3 rounded-lg border border-slate-200 px-3 py-2.5 text-left transition-colors hover:bg-slate-50"
-        >
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-900 text-white">
-            <Building2 size={18} />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-semibold text-slate-900">
-              {activeOrg.name}
-            </span>
-            <span className="block truncate text-xs text-slate-500">
-              {activeOrg.meta}
-            </span>
-          </span>
-          <ChevronsUpDown size={16} className="shrink-0 text-slate-400" />
-        </button>
-
-        {orgOpen && (
-          <>
-            <div
-              className="fixed inset-0 z-10 cursor-default"
-              onClick={() => setOrgOpen(false)}
-            />
-            <ul
-              role="listbox"
-              className="absolute inset-x-4 top-full z-20 rounded-lg border border-slate-200 bg-white p-1 shadow-lg"
-            >
-              {ORGS.map((org) => {
-                const selected = org.name === activeOrg.name;
-                return (
-                  <li key={org.name}>
-                    <button
-                      type="button"
-                      role="option"
-                      aria-selected={selected}
-                      onClick={() => {
-                        setActiveOrg(org);
-                        setOrgOpen(false);
-                      }}
-                      className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm hover:bg-slate-50"
-                    >
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate font-medium text-slate-900">
-                          {org.name}
-                        </span>
-                        <span className="block truncate text-xs text-slate-500">
-                          {org.meta}
-                        </span>
-                      </span>
-                      {selected && (
-                        <Check size={16} className="shrink-0 text-slate-900" />
-                      )}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </>
-        )}
-      </div>
+      {/* Multi-branch switcher (real properties, active-branch cookie) */}
+      <BranchSwitcher onNavigate={onNavigate} />
 
       {/* Navigation */}
       <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-3" aria-label="Primary">

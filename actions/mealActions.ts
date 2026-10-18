@@ -79,78 +79,51 @@ function emptyCounts(dateKey: string): DailyMealCounts {
 }
 
 /**
- * Headcount for one mess day. Tenants without a record count as eating all
- * three meals (columns default true). Only occupying tenants (holding at
- * least one bed) are counted; the first bed is shown as representative.
+ * Tenants that occupy at least one bed, with their beds for display. The
+ * roster is identical for every forecast day, so it is fetched ONCE and
+ * reused (previously it was re-queried per day).
  */
-export async function getDailyMealCounts(
-  dateKey: string
-): Promise<DailyMealCounts> {
-  const day = parseDay(dateKey);
-  if (!day) return emptyCounts(dateKey);
+function fetchTrackedTenants(orgId: string) {
+  return prisma.tenant.findMany({
+    where: { organizationId: orgId, beds: { some: {} } },
+    select: {
+      id: true,
+      fullName: true,
+      beds: {
+        select: {
+          bedNumber: true,
+          room: { select: { roomNumber: true } },
+        },
+        orderBy: { bedNumber: "asc" },
+      },
+    },
+    orderBy: { fullName: "asc" },
+  });
+}
 
-  const org = await getCurrentUserOrg();
-  if (!org) return emptyCounts(dateKey);
+interface TrackedTenantRow {
+  id: string;
+  fullName: string;
+  beds: { bedNumber: string; room: { roomNumber: string } }[];
+}
 
-  return countDay(org.id, day, dateKey);
+interface AttendanceRow {
+  tenantId: string;
+  breakfast: boolean;
+  lunch: boolean;
+  dinner: boolean;
 }
 
 /**
- * 4-day forecast: today plus the next three days, each counted exactly like
- * getDailyMealCounts, with an away-count (all three meals skipped) per day.
+ * Pure tally: shapes one day's counts from an in-memory roster + attendance
+ * rows. No I/O — shared by the single-day and 4-day forecast paths so the
+ * per-day work never re-hits the database.
  */
-export async function getUpcomingMealForecast(): Promise<ForecastDay[]> {
-  const org = await getCurrentUserOrg();
-  if (!org) return [];
-
-  const base = new Date();
-  base.setHours(0, 0, 0, 0);
-  const days = [0, 1, 2, 3].map((offset) => {
-    const d = new Date(base);
-    d.setDate(d.getDate() + offset);
-    return d;
-  });
-
-  const results = await Promise.all(
-    days.map((d) => countDay(org.id, d, toDateKey(d)))
-  );
-
-  return results.map((r) => ({
-    ...r,
-    awayCount: r.tenants.filter(
-      (t) => !t.breakfast && !t.lunch && !t.dinner
-    ).length,
-  }));
-}
-
-async function countDay(
-  orgId: string,
-  day: Date,
+function shapeDay(
+  tenants: TrackedTenantRow[],
+  records: AttendanceRow[],
   dateKey: string
-): Promise<DailyMealCounts> {
-
-  const [tenants, records] = await Promise.all([
-    prisma.tenant.findMany({
-      where: { organizationId: orgId, beds: { some: {} } },
-      select: {
-        id: true,
-        fullName: true,
-        beds: {
-          select: {
-            bedNumber: true,
-            room: { select: { roomNumber: true } },
-          },
-          orderBy: { bedNumber: "asc" },
-        },
-      },
-      orderBy: { fullName: "asc" },
-    }),
-    prisma.mealAttendance.findMany({
-      where: { organizationId: orgId, date: day },
-      select: { tenantId: true, breakfast: true, lunch: true, dinner: true },
-    }),
-  ]);
-
+): DailyMealCounts {
   const byTenant = new Map(records.map((r) => [r.tenantId, r]));
 
   let breakfastCount = 0;
@@ -208,6 +181,80 @@ async function countDay(
     tenants: tracked,
     skippedList,
   };
+}
+
+/**
+ * Headcount for one mess day. Tenants without a record count as eating all
+ * three meals (columns default true). Only occupying tenants (holding at
+ * least one bed) are counted; the first bed is shown as representative.
+ */
+export async function getDailyMealCounts(
+  dateKey: string
+): Promise<DailyMealCounts> {
+  const day = parseDay(dateKey);
+  if (!day) return emptyCounts(dateKey);
+
+  const org = await getCurrentUserOrg();
+  if (!org) return emptyCounts(dateKey);
+
+  const [tenants, records] = await Promise.all([
+    fetchTrackedTenants(org.id),
+    prisma.mealAttendance.findMany({
+      where: { organizationId: org.id, date: day },
+      select: { tenantId: true, breakfast: true, lunch: true, dinner: true },
+    }),
+  ]);
+
+  return shapeDay(tenants, records, dateKey);
+}
+
+/**
+ * 4-day forecast: today plus the next three days, each counted exactly like
+ * getDailyMealCounts, with an away-count (all three meals skipped) per day.
+ *
+ * Exactly two queries regardless of window size: one roster fetch + one
+ * attendance fetch using an `in` date filter (was 2 queries × 4 days).
+ */
+export async function getUpcomingMealForecast(): Promise<ForecastDay[]> {
+  const org = await getCurrentUserOrg();
+  if (!org) return [];
+
+  const base = new Date();
+  base.setHours(0, 0, 0, 0);
+  const days = [0, 1, 2, 3].map((offset) => {
+    const d = new Date(base);
+    d.setDate(d.getDate() + offset);
+    return d;
+  });
+
+  const [tenants, records] = await Promise.all([
+    fetchTrackedTenants(org.id),
+    prisma.mealAttendance.findMany({
+      where: { organizationId: org.id, date: { in: days } },
+      select: {
+        tenantId: true,
+        date: true,
+        breakfast: true,
+        lunch: true,
+        dinner: true,
+      },
+    }),
+  ]);
+
+  return days.map((day) => {
+    const dateKey = toDateKey(day);
+    const shaped = shapeDay(
+      tenants,
+      records.filter((r) => toDateKey(r.date) === dateKey),
+      dateKey
+    );
+    return {
+      ...shaped,
+      awayCount: shaped.tenants.filter(
+        (t) => !t.breakfast && !t.lunch && !t.dinner
+      ).length,
+    };
+  });
 }
 
 /**
